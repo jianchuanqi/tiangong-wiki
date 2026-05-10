@@ -25,6 +25,13 @@ export interface WorkflowLintResult {
   warnings: number;
 }
 
+export interface WorkflowExtractedText {
+  path: string;
+  sha256?: string;
+  parserSkill?: string;
+  charCount?: number;
+}
+
 export interface WorkflowResultManifest {
   status: WorkflowResultStatus;
   decision: WorkflowDecision;
@@ -37,6 +44,7 @@ export interface WorkflowResultManifest {
   proposedTypes: WorkflowProposedType[];
   actions: WorkflowAction[];
   lint: WorkflowLintResult[];
+  extractedText?: WorkflowExtractedText;
   sourceFile?: {
     path: string;
     sha256?: string;
@@ -76,6 +84,14 @@ function ensureNumber(value: unknown, label: string): number {
   return value;
 }
 
+function ensureNonNegativeInteger(value: unknown, label: string): number {
+  const parsed = ensureNumber(value, label);
+  if (!Number.isInteger(parsed) || parsed < 0) {
+    fail(`${label} must be a non-negative integer`);
+  }
+  return parsed;
+}
+
 function ensureStatus(value: unknown): WorkflowResultStatus {
   const status = ensureString(value, "result.status");
   if (status === "done" || status === "skipped" || status === "error") {
@@ -102,6 +118,34 @@ function parseSourceFile(value: unknown): WorkflowResultManifest["sourceFile"] {
   const sha256 =
     sourceFile.sha256 === undefined ? undefined : ensureString(sourceFile.sha256, "result.sourceFile.sha256");
   return { path, ...(sha256 ? { sha256 } : {}) };
+}
+
+function parseExtractedText(value: unknown): WorkflowExtractedText | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  const extractedText = ensureRecord(value, "result.extractedText");
+  const path = ensureString(extractedText.path, "result.extractedText.path");
+  const sha256 =
+    extractedText.sha256 === undefined
+      ? undefined
+      : ensureString(extractedText.sha256, "result.extractedText.sha256");
+  const parserSkill =
+    extractedText.parserSkill === undefined
+      ? undefined
+      : ensureString(extractedText.parserSkill, "result.extractedText.parserSkill");
+  const charCount =
+    extractedText.charCount === undefined
+      ? undefined
+      : ensureNonNegativeInteger(extractedText.charCount, "result.extractedText.charCount");
+
+  return {
+    path,
+    ...(sha256 ? { sha256 } : {}),
+    ...(parserSkill ? { parserSkill } : {}),
+    ...(charCount !== undefined ? { charCount } : {}),
+  };
 }
 
 function parseProposedTypes(value: unknown): WorkflowProposedType[] {
@@ -197,6 +241,7 @@ export function parseWorkflowResult(raw: unknown): WorkflowResultManifest {
       proposedTypes: parseProposedTypes(result.proposedTypes),
       actions: parseActions(result.actions),
       lint: parseLint(result.lint),
+      extractedText: parseExtractedText(result.extractedText),
       sourceFile: parseSourceFile(result.sourceFile),
     };
 

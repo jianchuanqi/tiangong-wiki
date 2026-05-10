@@ -119,6 +119,20 @@ function ensureBaseTables(db: Database.Database, embeddingDimensions: number): v
     CREATE INDEX IF NOT EXISTS idx_vchangelog_sync ON vault_changelog(sync_id);
     CREATE INDEX IF NOT EXISTS idx_vchangelog_time ON vault_changelog(detected_at);
 
+    CREATE TABLE IF NOT EXISTS vault_extractions (
+      file_id TEXT NOT NULL,
+      content_hash TEXT NOT NULL,
+      artifact_path TEXT NOT NULL,
+      artifact_sha256 TEXT NOT NULL,
+      parser_skill TEXT,
+      char_count INTEGER NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY(file_id, content_hash)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_vex_file ON vault_extractions(file_id);
+
     CREATE TABLE IF NOT EXISTS vault_processing_queue (
       file_id TEXT PRIMARY KEY,
       status TEXT DEFAULT 'pending',

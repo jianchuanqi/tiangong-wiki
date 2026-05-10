@@ -38,6 +38,12 @@ function validManifest() {
         warnings: 1,
       },
     ],
+    extractedText: {
+      path: "/tmp/extracted-fulltext.txt",
+      sha256: "abc123",
+      parserSkill: "document-granular-decompose",
+      charCount: 42,
+    },
   };
 }
 
@@ -55,6 +61,24 @@ describe("workflow result parsing", () => {
     expect(manifest.threadId).toBe("thread-123");
     expect(manifest.actions[0]?.kind).toBe("update_page");
     expect(manifest.proposedTypes[0]?.name).toBe("lab-report");
+    expect(manifest.extractedText).toEqual({
+      path: "/tmp/extracted-fulltext.txt",
+      sha256: "abc123",
+      parserSkill: "document-granular-decompose",
+      charCount: 42,
+    });
+  });
+
+  it("rejects malformed extracted text metadata", () => {
+    const manifest = validManifest();
+    manifest.extractedText = {
+      path: "/tmp/extracted-fulltext.txt",
+      charCount: -1,
+    } as (typeof manifest)["extractedText"];
+
+    expect(() => parseWorkflowResult(manifest)).toThrowError(
+      "result.extractedText.charCount must be a non-negative integer",
+    );
   });
 
   it("rejects a manifest without threadId", () => {

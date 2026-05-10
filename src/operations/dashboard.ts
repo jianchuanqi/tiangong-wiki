@@ -393,6 +393,10 @@ function buildQueueListItem(item: VaultQueueItem): Record<string, unknown> {
     appliedTypeNames: item.appliedTypeNames ?? [],
     proposedTypeNames: item.proposedTypeNames ?? [],
     skillsUsed: item.skillsUsed ?? [],
+    extractedTextPath: item.extractedTextPath ?? null,
+    extractedTextSha256: item.extractedTextSha256 ?? null,
+    extractedTextParserSkill: item.extractedTextParserSkill ?? null,
+    extractedTextCharCount: item.extractedTextCharCount ?? null,
     timing: buildQueueTiming(item),
   };
 }

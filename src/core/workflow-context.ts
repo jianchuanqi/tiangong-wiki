@@ -12,6 +12,7 @@ export interface WorkflowArtifactSet {
   queueItemPath: string;
   promptPath: string;
   resultPath: string;
+  extractedTextPath: string;
   skillArtifactsPath: string;
 }
 
@@ -19,6 +20,7 @@ export interface VaultWorkflowPromptInput {
   workspaceRoot: string;
   vaultFilePath: string;
   resultJsonPath: string;
+  extractedTextPath: string;
   allowTemplateEvolution: boolean;
 }
 
@@ -69,6 +71,7 @@ export function getWorkflowArtifactSet(paths: RuntimePaths, queueItemId: string)
     queueItemPath: path.join(rootDir, "queue-item.json"),
     promptPath: path.join(rootDir, "prompt.md"),
     resultPath: path.join(rootDir, "result.json"),
+    extractedTextPath: path.join(rootDir, "extracted-fulltext.txt"),
     skillArtifactsPath: path.join(rootDir, "skill-artifacts"),
   };
 }
@@ -80,6 +83,7 @@ export function buildVaultWorkflowPrompt(input: VaultWorkflowPromptInput): strin
     `WORKSPACE_ROOT=${input.workspaceRoot}`,
     `VAULT_FILE_PATH=${input.vaultFilePath}`,
     `RESULT_JSON_PATH=${input.resultJsonPath}`,
+    `EXTRACTED_TEXT_PATH=${input.extractedTextPath}`,
     `ALLOW_TEMPLATE_EVOLUTION=${input.allowTemplateEvolution ? "true" : "false"}`,
     "",
     "## Goal",
@@ -113,6 +117,7 @@ export function buildVaultWorkflowPrompt(input: VaultWorkflowPromptInput): strin
     "2. Read the target vault file at VAULT_FILE_PATH. Refer to `references/vault-to-wiki-instruction.md` (Phase 1) in the wiki package for file-type-specific reading strategies, parser skill discovery, image handling, and metadata utilization.",
     "   - If `WIKI_PARSER_SKILLS` includes `document-granular-decompose` and `UNSTRUCTURED_API_BASE_URL` plus `UNSTRUCTURED_AUTH_TOKEN` are set, prefer that skill for supported document/image files before the legacy type-specific parser skills. This includes PDF, Word, PowerPoint, Excel, Markdown, and common image formats; use the skill's `SKILL.md` for the exact extension allowlist.",
     "   - When using `document-granular-decompose`, request `return_txt=true`, treat the pure text extracted from `response.txt`/`txt` as the main input, and keep raw JSON only for debugging or page-number evidence.",
+    "   - If you extract plain text through any parser skill, write that canonical plain text snapshot to EXTRACTED_TEXT_PATH. For `document-granular-decompose`, write the same pure text from `response.txt`/`txt`. Leave EXTRACTED_TEXT_PATH empty only when no extractable text exists.",
     "3. Discover the current page type ontology via `tiangong-wiki type list` and `tiangong-wiki type show <type>`. Do not assume any type, template, or default target type.",
     "4. Search the existing wiki for overlapping or related content:",
     "   - Use `tiangong-wiki fts` and `tiangong-wiki search` with key terms from the source.",
@@ -201,7 +206,7 @@ export function buildVaultWorkflowPrompt(input: VaultWorkflowPromptInput): strin
     "",
     "The authoritative threadId is queue-item.json.threadId. Read it from there and copy it unchanged into result.json.threadId. If it is empty on first read, read queue-item.json again immediately before writing the manifest.",
     "",
-    "Write RESULT_JSON_PATH as one JSON object with: status, decision, reason, threadId, skillsUsed, createdPageIds, updatedPageIds, appliedTypeNames, proposedTypes, actions, lint.",
+    "Write RESULT_JSON_PATH as one JSON object with: status, decision, reason, threadId, skillsUsed, createdPageIds, updatedPageIds, appliedTypeNames, proposedTypes, actions, lint, and optional extractedText.",
     "",
     "### Allowed Values",
     "",
@@ -210,10 +215,11 @@ export function buildVaultWorkflowPrompt(input: VaultWorkflowPromptInput): strin
     "- **actions**: Array of objects, never strings. Allowed action kinds: create_page, update_page, create_template. Every action object must include kind and summary. create_page requires pageType and title. update_page requires pageId. create_template requires pageType and title.",
     "- **proposedTypes**: Objects with name, reason, suggestedTemplateSections.",
     "- **lint**: Objects with pageId, errors, warnings.",
+    "- **extractedText**: Optional object when EXTRACTED_TEXT_PATH contains extracted plain text. Include path=EXTRACTED_TEXT_PATH, parserSkill, sha256 when practical, and charCount. Do not put the full text itself in result.json.",
     "",
     "### Example",
     "",
-    '{"status":"done","decision":"apply","reason":"Updated the existing method.","threadId":"<copy queue-item.json.threadId>","skillsUsed":["tiangong-wiki-skill"],"createdPageIds":[],"updatedPageIds":["methods/example.md"],"appliedTypeNames":["method"],"proposedTypes":[],"actions":[{"kind":"update_page","pageId":"methods/example.md","pageType":"method","summary":"Updated the page with durable knowledge."}],"lint":[{"pageId":"methods/example.md","errors":0,"warnings":0}]}',
+    '{"status":"done","decision":"apply","reason":"Updated the existing method.","threadId":"<copy queue-item.json.threadId>","skillsUsed":["tiangong-wiki-skill"],"createdPageIds":[],"updatedPageIds":["methods/example.md"],"appliedTypeNames":["method"],"proposedTypes":[],"actions":[{"kind":"update_page","pageId":"methods/example.md","pageType":"method","summary":"Updated the page with durable knowledge."}],"lint":[{"pageId":"methods/example.md","errors":0,"warnings":0}],"extractedText":{"path":"<copy EXTRACTED_TEXT_PATH>","parserSkill":"document-granular-decompose","sha256":"<sha256 of extracted-fulltext.txt>","charCount":1234}}',
     "",
     "If no page change is justified, still write RESULT_JSON_PATH with decision=skip or decision=propose_only and then stop.",
     "Use RESULT_JSON_PATH only for the final structured manifest. Write raw JSON only, with no Markdown fences and no prose before or after the JSON object.",
@@ -290,6 +296,7 @@ export function ensureWorkflowArtifactSet(
       ].join("\n"),
   );
   writeTextFileSync(artifacts.resultPath, "");
+  writeTextFileSync(artifacts.extractedTextPath, "");
 
   return artifacts;
 }

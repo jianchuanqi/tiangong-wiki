@@ -18,12 +18,14 @@ describe("workflow prompt shape", () => {
       workspaceRoot: "/tmp/workspace",
       vaultFilePath: "/tmp/workspace/vault/imports/spec.pdf",
       resultJsonPath: "/tmp/workspace/tiangong-wiki/.queue-artifacts/spec/result.json",
+      extractedTextPath: "/tmp/workspace/tiangong-wiki/.queue-artifacts/spec/extracted-fulltext.txt",
       allowTemplateEvolution: false,
     });
 
     expect(prompt).toContain("WORKSPACE_ROOT=/tmp/workspace");
     expect(prompt).toContain("VAULT_FILE_PATH=/tmp/workspace/vault/imports/spec.pdf");
     expect(prompt).toContain("RESULT_JSON_PATH=/tmp/workspace/tiangong-wiki/.queue-artifacts/spec/result.json");
+    expect(prompt).toContain("EXTRACTED_TEXT_PATH=/tmp/workspace/tiangong-wiki/.queue-artifacts/spec/extracted-fulltext.txt");
     expect(prompt).toContain("ALLOW_TEMPLATE_EVOLUTION=false");
     expect(prompt).toContain("## Environment");
     expect(prompt).toContain("Workspace-local skills are available from WORKSPACE_ROOT");
@@ -31,6 +33,7 @@ describe("workflow prompt shape", () => {
     expect(prompt).toContain("WIKI_PARSER_SKILLS` includes `document-granular-decompose");
     expect(prompt).toContain("request `return_txt=true`");
     expect(prompt).toContain("pure text extracted from `response.txt`/`txt`");
+    expect(prompt).toContain("write that canonical plain text snapshot to EXTRACTED_TEXT_PATH");
     expect(prompt).toContain("tiangong-wiki type list");
     expect(prompt).toContain("tiangong-wiki template show <type>");
     expect(prompt).toContain("tiangong-wiki page-info <pageId>");
@@ -52,6 +55,7 @@ describe("workflow prompt shape", () => {
     expect(prompt).toContain("**status**: done | skipped | error");
     expect(prompt).toContain("**decision**: apply | skip | propose_only");
     expect(prompt).toContain("**actions**: Array of objects, never strings.");
+    expect(prompt).toContain("**extractedText**: Optional object");
     expect(prompt).toContain("Write raw JSON only, with no Markdown fences");
     expect(prompt).toContain("Stop immediately after RESULT_JSON_PATH is fully written.");
     expect(prompt).toContain("Write RESULT_JSON_PATH as one JSON object");
@@ -68,6 +72,7 @@ describe("workflow prompt shape", () => {
       workspaceRoot: workspace.root,
       vaultFilePath: `${workspace.vaultPath}/imports/spec.pdf`,
       resultJsonPath: `${workspace.wikiRoot}/.queue-artifacts/spec/result.json`,
+      extractedTextPath: `${workspace.wikiRoot}/.queue-artifacts/spec/extracted-fulltext.txt`,
       allowTemplateEvolution: true,
     });
 
@@ -79,6 +84,7 @@ describe("workflow prompt shape", () => {
 
     const savedPrompt = readFile(artifacts.promptPath);
     expect(savedPrompt).toContain(`WORKSPACE_ROOT=${workspace.root}`);
+    expect(savedPrompt).toContain("EXTRACTED_TEXT_PATH=");
     expect(savedPrompt).toContain("ALLOW_TEMPLATE_EVOLUTION=true");
     expect(savedPrompt).toContain("tiangong-wiki CLI provides these discovery and search capabilities");
     expect(savedPrompt).toContain("Workspace-local skills are available from WORKSPACE_ROOT");

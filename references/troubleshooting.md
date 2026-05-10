@@ -99,6 +99,8 @@ The agent uses [Codex SDK](https://www.npmjs.com/package/@openai/codex-sdk) to p
 
 When `document-granular-decompose` is configured with `UNSTRUCTURED_API_BASE_URL` and `UNSTRUCTURED_AUTH_TOKEN`, the wiki agent prefers it before the type-specific `pdf`, `docx`, `pptx`, and `xlsx` skills for supported document/image files. Keep the type-specific skills configured only when you want them available as fallback tools.
 
+For successful parser runs, the workflow keeps the exact plain-text extraction used by the agent at `.queue-artifacts/<file-artifact>/extracted-fulltext.txt`. `tiangong-wiki vault queue` exposes `extractedTextPath`, `extractedTextSha256`, `extractedTextParserSkill`, and `extractedTextCharCount` when a snapshot exists.
+
 `tiangong-wiki setup` now prompts for `WIKI_AGENT_SANDBOX_MODE` when automatic vault processing is enabled. The default is `danger-full-access`, and the setup wizard highlights that this mode grants full runtime access.
 
 When `WIKI_AGENT_ENABLED=true` and `WIKI_AGENT_AUTH_MODE=codex-login`, `tiangong-wiki doctor` and `tiangong-wiki check-config` verify that `WIKI_AGENT_CODEX_HOME` exists and contains `auth.json`. They report the path and remediation command, but never print token or auth file contents.

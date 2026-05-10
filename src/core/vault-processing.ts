@@ -23,7 +23,7 @@ import {
 import { readWorkflowResult, type WorkflowResultManifest } from "./workflow-result.js";
 import type { VaultFile, VaultQueueItem, VaultQueueStatus } from "../types/page.js";
 import { AppError } from "../utils/errors.js";
-import { readTextFileSync } from "../utils/fs.js";
+import { pathExistsSync, readTextFileSync, sha256Text } from "../utils/fs.js";
 import { addSeconds, toOffsetIso } from "../utils/time.js";
 
 export interface QueueProcessResult {
@@ -44,6 +44,10 @@ export interface QueueProcessResult {
     updatedPageIds?: string[];
     proposedTypeNames?: string[];
     resultManifestPath?: string | null;
+    extractedTextPath?: string | null;
+    extractedTextSha256?: string | null;
+    extractedTextParserSkill?: string | null;
+    extractedTextCharCount?: number | null;
   }>;
 }
 
@@ -130,6 +134,11 @@ function mapQueueRow(row: Record<string, unknown>): VaultQueueItem {
     appliedTypeNames: parseOptionalStringArray(row.appliedTypeNames),
     proposedTypeNames: parseOptionalStringArray(row.proposedTypeNames),
     skillsUsed: parseOptionalStringArray(row.skillsUsed),
+    extractedTextPath: typeof row.extractedTextPath === "string" ? row.extractedTextPath : null,
+    extractedTextSha256: typeof row.extractedTextSha256 === "string" ? row.extractedTextSha256 : null,
+    extractedTextParserSkill: typeof row.extractedTextParserSkill === "string" ? row.extractedTextParserSkill : null,
+    extractedTextCharCount:
+      typeof row.extractedTextCharCount === "number" ? row.extractedTextCharCount : null,
     fileName: typeof row.fileName === "string" ? row.fileName : undefined,
     fileExt: typeof row.fileExt === "string" ? row.fileExt : null,
     sourceType: typeof row.sourceType === "string" ? row.sourceType : null,
@@ -163,8 +172,8 @@ function claimQueueItems(
   const select = db.prepare(
     `
       SELECT
-        file_id AS fileId,
-        status,
+        vault_processing_queue.file_id AS fileId,
+        vault_processing_queue.status,
         priority,
         queued_at AS queuedAt,
         claimed_at AS claimedAt,
@@ -191,16 +200,23 @@ function claimQueueItems(
         vault_files.file_ext AS fileExt,
         vault_files.source_type AS sourceType,
         vault_files.file_size AS fileSize,
-        vault_files.file_path AS filePath
+        vault_files.file_path AS filePath,
+        vault_extractions.artifact_path AS extractedTextPath,
+        vault_extractions.artifact_sha256 AS extractedTextSha256,
+        vault_extractions.parser_skill AS extractedTextParserSkill,
+        vault_extractions.char_count AS extractedTextCharCount
       FROM vault_processing_queue
       LEFT JOIN vault_files ON vault_files.id = vault_processing_queue.file_id
+      LEFT JOIN vault_extractions
+        ON vault_extractions.file_id = vault_processing_queue.file_id
+        AND vault_extractions.content_hash = vault_files.content_hash
       WHERE (
         vault_processing_queue.status = 'pending'
         OR (
           ${errorEligibility}
         )
       )${filter.clause}${exclude.clause}
-      ORDER BY priority DESC, queued_at ASC
+      ORDER BY vault_processing_queue.priority DESC, vault_processing_queue.queued_at ASC
       LIMIT ?
     `,
   );
@@ -263,8 +279,8 @@ function fetchQueueItemsByStatus(
   const rows = db.prepare(
     `
       SELECT
-        file_id AS fileId,
-        status,
+        vault_processing_queue.file_id AS fileId,
+        vault_processing_queue.status,
         priority,
         queued_at AS queuedAt,
         claimed_at AS claimedAt,
@@ -291,11 +307,18 @@ function fetchQueueItemsByStatus(
         vault_files.file_ext AS fileExt,
         vault_files.source_type AS sourceType,
         vault_files.file_size AS fileSize,
-        vault_files.file_path AS filePath
+        vault_files.file_path AS filePath,
+        vault_extractions.artifact_path AS extractedTextPath,
+        vault_extractions.artifact_sha256 AS extractedTextSha256,
+        vault_extractions.parser_skill AS extractedTextParserSkill,
+        vault_extractions.char_count AS extractedTextCharCount
       FROM vault_processing_queue
       LEFT JOIN vault_files ON vault_files.id = vault_processing_queue.file_id
-      ${status ? "WHERE status = ?" : ""}
-      ORDER BY priority DESC, queued_at ASC
+      LEFT JOIN vault_extractions
+        ON vault_extractions.file_id = vault_processing_queue.file_id
+        AND vault_extractions.content_hash = vault_files.content_hash
+      ${status ? "WHERE vault_processing_queue.status = ?" : ""}
+      ORDER BY vault_processing_queue.priority DESC, vault_processing_queue.queued_at ASC
     `,
   ).all(...(status ? [status] : [])) as Array<Record<string, unknown>>;
   return rows.map(mapQueueRow);
@@ -308,8 +331,8 @@ function fetchQueueItemByFileId(
   const row = db.prepare(
     `
       SELECT
-        file_id AS fileId,
-        status,
+        vault_processing_queue.file_id AS fileId,
+        vault_processing_queue.status,
         priority,
         queued_at AS queuedAt,
         claimed_at AS claimedAt,
@@ -336,9 +359,16 @@ function fetchQueueItemByFileId(
         vault_files.file_ext AS fileExt,
         vault_files.source_type AS sourceType,
         vault_files.file_size AS fileSize,
-        vault_files.file_path AS filePath
+        vault_files.file_path AS filePath,
+        vault_extractions.artifact_path AS extractedTextPath,
+        vault_extractions.artifact_sha256 AS extractedTextSha256,
+        vault_extractions.parser_skill AS extractedTextParserSkill,
+        vault_extractions.char_count AS extractedTextCharCount
       FROM vault_processing_queue
       LEFT JOIN vault_files ON vault_files.id = vault_processing_queue.file_id
+      LEFT JOIN vault_extractions
+        ON vault_extractions.file_id = vault_processing_queue.file_id
+        AND vault_extractions.content_hash = vault_files.content_hash
       WHERE vault_processing_queue.file_id = ?
     `,
   ).get(fileId) as Record<string, unknown> | undefined;
@@ -425,8 +455,8 @@ function fetchStaleProcessingQueueItems(
   const rows = db.prepare(
     `
       SELECT
-        file_id AS fileId,
-        status,
+        vault_processing_queue.file_id AS fileId,
+        vault_processing_queue.status,
         priority,
         queued_at AS queuedAt,
         claimed_at AS claimedAt,
@@ -453,10 +483,17 @@ function fetchStaleProcessingQueueItems(
         vault_files.file_ext AS fileExt,
         vault_files.source_type AS sourceType,
         vault_files.file_size AS fileSize,
-        vault_files.file_path AS filePath
+        vault_files.file_path AS filePath,
+        vault_extractions.artifact_path AS extractedTextPath,
+        vault_extractions.artifact_sha256 AS extractedTextSha256,
+        vault_extractions.parser_skill AS extractedTextParserSkill,
+        vault_extractions.char_count AS extractedTextCharCount
       FROM vault_processing_queue
       LEFT JOIN vault_files ON vault_files.id = vault_processing_queue.file_id
-      WHERE status = 'processing'
+      LEFT JOIN vault_extractions
+        ON vault_extractions.file_id = vault_processing_queue.file_id
+        AND vault_extractions.content_hash = vault_files.content_hash
+      WHERE vault_processing_queue.status = 'processing'
         AND COALESCE(processing_owner_id, '') != ?
         AND (
           (heartbeat_at IS NOT NULL AND julianday(heartbeat_at) <= julianday(?))
@@ -663,16 +700,134 @@ function formatQueueErrorMessage(
   return `${message}${autoRetrySuffix}`.slice(0, 1_000);
 }
 
+function resolveCurrentVaultContentHash(db: Database.Database, fileId: string): string | null {
+  const row = db
+    .prepare("SELECT content_hash AS contentHash FROM vault_files WHERE id = ?")
+    .get(fileId) as { contentHash?: string | null } | undefined;
+  return typeof row?.contentHash === "string" && row.contentHash.length > 0 ? row.contentHash : null;
+}
+
+function inferExtractionParserSkill(manifest: WorkflowResultManifest): string | null {
+  const explicit = manifest.extractedText?.parserSkill?.trim();
+  if (explicit) {
+    return explicit;
+  }
+  return manifest.skillsUsed.find((skill) => skill !== "tiangong-wiki-skill") ?? null;
+}
+
+function persistWorkflowExtraction(
+  db: Database.Database,
+  fileId: string,
+  manifest: WorkflowResultManifest,
+  extractedTextPath: string,
+  processedAt: string,
+): void {
+  const contentHash = resolveCurrentVaultContentHash(db, fileId);
+  if (!contentHash) {
+    return;
+  }
+
+  const expectedPath = path.resolve(extractedTextPath);
+  if (manifest.extractedText?.path && path.resolve(manifest.extractedText.path) !== expectedPath) {
+    throw new AppError("result.extractedText.path must match EXTRACTED_TEXT_PATH", "runtime", {
+      expectedPath,
+      actualPath: manifest.extractedText.path,
+    });
+  }
+
+  const extractedText = pathExistsSync(expectedPath) ? readTextFileSync(expectedPath) : "";
+  if (extractedText.length === 0) {
+    if (manifest.extractedText) {
+      throw new AppError("result.extractedText was declared but EXTRACTED_TEXT_PATH is empty", "runtime", {
+        expectedPath,
+      });
+    }
+    db.prepare("DELETE FROM vault_extractions WHERE file_id = ? AND content_hash = ?").run(fileId, contentHash);
+    return;
+  }
+
+  const artifactSha256 = sha256Text(extractedText);
+  if (manifest.extractedText?.sha256 && manifest.extractedText.sha256 !== artifactSha256) {
+    throw new AppError("result.extractedText.sha256 does not match EXTRACTED_TEXT_PATH content", "runtime", {
+      expectedSha256: artifactSha256,
+      actualSha256: manifest.extractedText.sha256,
+    });
+  }
+
+  db.prepare(
+    `
+      INSERT INTO vault_extractions(
+        file_id,
+        content_hash,
+        artifact_path,
+        artifact_sha256,
+        parser_skill,
+        char_count,
+        created_at,
+        updated_at
+      )
+      VALUES (
+        @file_id,
+        @content_hash,
+        @artifact_path,
+        @artifact_sha256,
+        @parser_skill,
+        @char_count,
+        @created_at,
+        @updated_at
+      )
+      ON CONFLICT(file_id, content_hash) DO UPDATE SET
+        artifact_path = excluded.artifact_path,
+        artifact_sha256 = excluded.artifact_sha256,
+        parser_skill = excluded.parser_skill,
+        char_count = excluded.char_count,
+        updated_at = excluded.updated_at
+    `,
+  ).run({
+    file_id: fileId,
+    content_hash: contentHash,
+    artifact_path: expectedPath,
+    artifact_sha256: artifactSha256,
+    parser_skill: inferExtractionParserSkill(manifest),
+    char_count: extractedText.length,
+    created_at: processedAt,
+    updated_at: processedAt,
+  });
+}
+
+function buildExtractionResultFields(
+  manifest: WorkflowResultManifest,
+  extractedTextPath: string,
+): Pick<
+  QueueProcessItemResult,
+  "extractedTextPath" | "extractedTextSha256" | "extractedTextParserSkill" | "extractedTextCharCount"
+> {
+  const expectedPath = path.resolve(extractedTextPath);
+  const extractedText = pathExistsSync(expectedPath) ? readTextFileSync(expectedPath) : "";
+  if (extractedText.length === 0) {
+    return {};
+  }
+
+  return {
+    extractedTextPath: expectedPath,
+    extractedTextSha256: sha256Text(extractedText),
+    extractedTextParserSkill: inferExtractionParserSkill(manifest),
+    extractedTextCharCount: extractedText.length,
+  };
+}
+
 function applyWorkflowManifest(
   db: Database.Database,
   fileId: string,
   manifest: WorkflowResultManifest,
   resultManifestPath: string,
+  extractedTextPath: string,
   currentAttempts: number,
 ): { status: VaultQueueStatus; pageId: string | null } {
   const resultPageId = manifest.createdPageIds[0] ?? manifest.updatedPageIds[0] ?? null;
   const status = manifest.status;
   const processedAt = toOffsetIso();
+  persistWorkflowExtraction(db, fileId, manifest, extractedTextPath, processedAt);
 
   if (status === "error") {
     const failureState = buildQueueFailureState(manifest.reason);
@@ -877,6 +1032,7 @@ function readRecoverableWorkflowResult(
 
 function recoverStaleProcessingQueueItems(input: {
   db: Database.Database;
+  paths: ReturnType<typeof resolveRuntimePaths>;
   processingOwnerId: string;
   log?: (message: string) => void;
   templateEvolution: ReturnType<typeof resolveTemplateEvolutionSettings>;
@@ -891,11 +1047,13 @@ function recoverStaleProcessingQueueItems(input: {
 
     if (recoveredManifest && item.resultManifestPath) {
       assertTemplateEvolutionAllowed(recoveredManifest, input.templateEvolution);
+      const extractedTextPath = getWorkflowArtifactSet(input.paths, item.fileId).extractedTextPath;
       const outcome = applyWorkflowManifest(
         input.db,
         item.fileId,
         recoveredManifest,
         item.resultManifestPath,
+        extractedTextPath,
         item.attempts,
       );
       input.log?.(
@@ -913,6 +1071,7 @@ function recoverStaleProcessingQueueItems(input: {
         updatedPageIds: recoveredManifest.updatedPageIds,
         proposedTypeNames: recoveredManifest.proposedTypes.map((entry) => entry.name),
         resultManifestPath: item.resultManifestPath,
+        ...buildExtractionResultFields(recoveredManifest, extractedTextPath),
       });
       continue;
     }
@@ -1023,6 +1182,7 @@ function prepareCodexWorkflowInput(
     workspaceRoot,
     vaultFilePath: localFilePath,
     resultJsonPath: artifacts.resultPath,
+    extractedTextPath: artifacts.extractedTextPath,
     allowTemplateEvolution,
   });
 
@@ -1037,6 +1197,7 @@ function prepareCodexWorkflowInput(
       vaultPath: paths.vaultPath,
       localFilePath,
       resultJsonPath: artifacts.resultPath,
+      extractedTextPath: artifacts.extractedTextPath,
       skillArtifactsPath: artifacts.skillArtifactsPath,
       file,
       queue: {
@@ -1059,6 +1220,7 @@ function prepareCodexWorkflowInput(
       promptText,
       queueItemPath: artifacts.queueItemPath,
       resultPath: artifacts.resultPath,
+      extractedTextPath: artifacts.extractedTextPath,
       skillArtifactsPath: artifacts.skillArtifactsPath,
       model: resolveAgentSettings(env).model,
       env,
@@ -1194,7 +1356,14 @@ async function processClaimedQueueItem(input: {
         );
         assertTemplateEvolutionAllowed(manifest, templateEvolution);
         finalOutcome = {
-          outcome: applyWorkflowManifest(db, item.fileId, manifest, artifacts.resultPath, item.attempts),
+          outcome: applyWorkflowManifest(
+            db,
+            item.fileId,
+            manifest,
+            artifacts.resultPath,
+            artifacts.extractedTextPath,
+            item.attempts,
+          ),
           manifest,
           handleThreadId: handle.threadId,
         };
@@ -1216,7 +1385,14 @@ async function processClaimedQueueItem(input: {
         if (recoveredManifest) {
           assertTemplateEvolutionAllowed(recoveredManifest, templateEvolution);
           finalOutcome = {
-            outcome: applyWorkflowManifest(db, item.fileId, recoveredManifest, artifacts.resultPath, item.attempts),
+            outcome: applyWorkflowManifest(
+              db,
+              item.fileId,
+              recoveredManifest,
+              artifacts.resultPath,
+              artifacts.extractedTextPath,
+              item.attempts,
+            ),
             manifest: recoveredManifest,
             handleThreadId: recoveredManifest.threadId,
           };
@@ -1257,6 +1433,7 @@ async function processClaimedQueueItem(input: {
         updatedPageIds: finalOutcome.manifest.updatedPageIds,
         proposedTypeNames: finalOutcome.manifest.proposedTypes.map((entry) => entry.name),
         resultManifestPath: artifacts.resultPath,
+        ...buildExtractionResultFields(finalOutcome.manifest, artifacts.extractedTextPath),
       },
     };
   } catch (error) {
@@ -1265,11 +1442,13 @@ async function processClaimedQueueItem(input: {
       : null;
     if (recoveredManifest && resultManifestPath) {
       assertTemplateEvolutionAllowed(recoveredManifest, templateEvolution);
+      const extractedTextPath = getWorkflowArtifactSet(paths, item.fileId).extractedTextPath;
       const recoveredOutcome = applyWorkflowManifest(
         db,
         item.fileId,
         recoveredManifest,
         resultManifestPath,
+        extractedTextPath,
         item.attempts,
       );
       input.log?.(
@@ -1289,6 +1468,7 @@ async function processClaimedQueueItem(input: {
           updatedPageIds: recoveredManifest.updatedPageIds,
           proposedTypeNames: recoveredManifest.proposedTypes.map((entry) => entry.name),
           resultManifestPath,
+          ...buildExtractionResultFields(recoveredManifest, extractedTextPath),
         },
       };
     }
@@ -1457,6 +1637,7 @@ export async function processVaultQueueBatch(
 
     for (const recoveredItem of recoverStaleProcessingQueueItems({
       db,
+      paths,
       processingOwnerId,
       log: options.log,
       templateEvolution,

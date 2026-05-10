@@ -82,6 +82,10 @@ export interface VaultQueueItem {
   appliedTypeNames?: string[];
   proposedTypeNames?: string[];
   skillsUsed?: string[];
+  extractedTextPath?: string | null;
+  extractedTextSha256?: string | null;
+  extractedTextParserSkill?: string | null;
+  extractedTextCharCount?: number | null;
   fileName?: string;
   fileExt?: string | null;
   sourceType?: string | null;

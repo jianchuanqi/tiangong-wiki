@@ -77,6 +77,7 @@ export interface CodexWorkflowInput {
   promptText: string;
   queueItemPath: string;
   resultPath: string;
+  extractedTextPath: string;
   skillArtifactsPath: string;
   model?: string | null;
   env?: NodeJS.ProcessEnv;

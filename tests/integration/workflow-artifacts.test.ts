@@ -53,11 +53,13 @@ describe("workflow artifacts", () => {
     expect(readFile(artifacts.queueItemPath)).toContain('"fileId": "imports/spec.pdf"');
     expect(readFile(artifacts.promptPath)).toContain("Use runtime discovery.");
     expect(readFile(artifacts.resultPath)).toBe("");
+    expect(readFile(artifacts.extractedTextPath)).toBe("");
 
     const relativeEntries = [
       artifacts.queueItemPath,
       artifacts.promptPath,
       artifacts.resultPath,
+      artifacts.extractedTextPath,
       artifacts.skillArtifactsPath,
     ].map((entry) => path.relative(artifacts.rootDir, entry));
 
@@ -65,6 +67,7 @@ describe("workflow artifacts", () => {
       "queue-item.json",
       "prompt.md",
       "result.json",
+      "extracted-fulltext.txt",
       "skill-artifacts",
     ]);
   });

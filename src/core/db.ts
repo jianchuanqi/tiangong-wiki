@@ -112,8 +112,6 @@ function ensureBaseTables(db: Database.Database, embeddingDimensions: number): v
       indexed_at TEXT
     );
 
-    CREATE INDEX IF NOT EXISTS idx_vfiles_source_timestamp ON vault_files(source_timestamp);
-
     CREATE TABLE IF NOT EXISTS vault_changelog (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       file_id TEXT NOT NULL,

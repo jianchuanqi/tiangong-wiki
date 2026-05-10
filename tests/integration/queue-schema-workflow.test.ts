@@ -1,6 +1,9 @@
 import Database from "better-sqlite3";
+import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
+import { loadConfig } from "../../src/core/config.js";
+import { openDb } from "../../src/core/db.js";
 import {
   bootstrapRuntimeAssets,
   cleanupWorkspace,
@@ -26,6 +29,13 @@ const WORKFLOW_COLUMNS = [
   "applied_type_names",
   "proposed_type_names",
   "skills_used",
+];
+
+const VAULT_SOURCE_TIMESTAMP_COLUMNS = [
+  "source_timestamp",
+  "source_timestamp_source",
+  "source_timestamp_confidence",
+  "source_timestamp_candidates",
 ];
 
 describe("queue schema workflow fields", () => {
@@ -75,6 +85,84 @@ describe("queue schema workflow fields", () => {
       inserted: 0,
       updated: 0,
       deleted: 0,
+    });
+  });
+
+  it("upgrades an existing vault_files table before creating source timestamp indexes", () => {
+    const workspace = createWorkspace();
+    workspaces.push(workspace);
+    bootstrapRuntimeAssets(workspace);
+
+    const db = new Database(workspaceDbPath(workspace));
+    try {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS vault_files (
+          id TEXT PRIMARY KEY,
+          file_name TEXT NOT NULL,
+          file_ext TEXT,
+          source_type TEXT,
+          file_size INTEGER,
+          file_path TEXT NOT NULL,
+          content_hash TEXT,
+          file_mtime REAL,
+          indexed_at TEXT
+        );
+      `);
+      db.prepare(
+        `
+          INSERT INTO vault_files(
+            id, file_name, file_ext, source_type, file_size, file_path, content_hash, file_mtime, indexed_at
+          )
+          VALUES(@id, @fileName, @fileExt, @sourceType, @fileSize, @filePath, @contentHash, @fileMtime, @indexedAt)
+        `,
+      ).run({
+        id: "imports/spec.pdf",
+        fileName: "spec.pdf",
+        fileExt: "pdf",
+        sourceType: "local",
+        fileSize: 12,
+        filePath: "imports/spec.pdf",
+        contentHash: "hash-before-migration",
+        fileMtime: 1_765_000_000,
+        indexedAt: "2026-05-10T12:00:00+08:00",
+      });
+    } finally {
+      db.close();
+    }
+
+    const config = loadConfig(path.join(workspace.wikiRoot, "wiki.config.json"));
+    const migrated = openDb(workspaceDbPath(workspace), config, 1536, undefined, { ensureFts: false });
+    migrated.db.close();
+
+    const columns = queryDb<{ name: string }>(workspace, "PRAGMA table_info(vault_files)");
+    expect(columns.map((column) => column.name)).toEqual(expect.arrayContaining(VAULT_SOURCE_TIMESTAMP_COLUMNS));
+
+    const indexes = queryDb<{ name: string }>(workspace, "PRAGMA index_list(vault_files)");
+    expect(indexes.map((index) => index.name)).toContain("idx_vfiles_source_timestamp");
+
+    const rows = queryDb<{
+      id: string;
+      contentHash: string;
+      sourceTimestamp: string | null;
+      sourceTimestampCandidates: string | null;
+    }>(
+      workspace,
+      `
+        SELECT
+          id,
+          content_hash AS contentHash,
+          source_timestamp AS sourceTimestamp,
+          source_timestamp_candidates AS sourceTimestampCandidates
+        FROM vault_files
+        WHERE id = ?
+      `,
+      ["imports/spec.pdf"],
+    );
+    expect(rows[0]).toEqual({
+      id: "imports/spec.pdf",
+      contentHash: "hash-before-migration",
+      sourceTimestamp: null,
+      sourceTimestampCandidates: null,
     });
   });
 

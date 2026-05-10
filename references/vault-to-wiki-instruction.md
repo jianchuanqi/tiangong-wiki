@@ -28,9 +28,9 @@ Parser skills are installed under `<workspace-root>/.agents/skills/`. Do not ass
 | `docx` | Extract text and structure from DOCX files |
 | `pptx` | Extract text, slide structure, and speaker notes from PPTX files |
 | `xlsx` | Extract tables and data from XLSX/CSV files |
-| `document-granular-decompose` | Extract document/image fulltext through TianGong Unstructure |
+| `document-granular-decompose` | Extract fulltext from PDF, Office documents, Markdown, and common image formats through TianGong Unstructure |
 
-When `document-granular-decompose` is available, `WIKI_PARSER_SKILLS` includes it, and `UNSTRUCTURED_API_BASE_URL` plus `UNSTRUCTURED_AUTH_TOKEN` are set, prefer it for supported document/image formats before the type-specific parser skills below. The client should request JSON with `return_txt=true`, then use the plain text from `response.txt` / `txt` as the wiki agent's primary input. Keep JSON chunks and page numbers only for debugging or provenance evidence.
+When `document-granular-decompose` is available, `WIKI_PARSER_SKILLS` includes it, and `UNSTRUCTURED_API_BASE_URL` plus `UNSTRUCTURED_AUTH_TOKEN` are set, prefer it for supported document/image formats before the type-specific parser skills below. This includes PDF, Word, PowerPoint, Excel, Markdown, and common image formats; read the skill's own `SKILL.md` for the exact extension allowlist. The client should request JSON with `return_txt=true`, then use the plain text from `response.txt` / `txt` as the wiki agent's primary input. Keep JSON chunks and page numbers only for debugging or provenance evidence.
 
 When any other parser skill is available and the vault file matches its type, use the skill. Read the skill's SKILL.md for interface details before invoking.
 

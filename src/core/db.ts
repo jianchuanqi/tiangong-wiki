@@ -105,8 +105,14 @@ function ensureBaseTables(db: Database.Database, embeddingDimensions: number): v
       file_path TEXT NOT NULL,
       content_hash TEXT,
       file_mtime REAL,
+      source_timestamp TEXT,
+      source_timestamp_source TEXT,
+      source_timestamp_confidence REAL,
+      source_timestamp_candidates TEXT,
       indexed_at TEXT
     );
+
+    CREATE INDEX IF NOT EXISTS idx_vfiles_source_timestamp ON vault_files(source_timestamp);
 
     CREATE TABLE IF NOT EXISTS vault_changelog (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -194,6 +200,15 @@ function ensureBaseTables(db: Database.Database, embeddingDimensions: number): v
     proposed_type_names: "TEXT",
     skills_used: "TEXT",
   });
+
+  ensureTableColumns(db, "vault_files", {
+    source_timestamp: "TEXT",
+    source_timestamp_source: "TEXT",
+    source_timestamp_confidence: "REAL",
+    source_timestamp_candidates: "TEXT",
+  });
+
+  db.exec("CREATE INDEX IF NOT EXISTS idx_vfiles_source_timestamp ON vault_files(source_timestamp)");
 
   if (!tableExists(db, "vec_pages")) {
     db.exec(`

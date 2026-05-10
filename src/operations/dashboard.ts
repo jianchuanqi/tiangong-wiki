@@ -388,6 +388,9 @@ function buildQueueListItem(item: VaultQueueItem): Record<string, unknown> {
     sourceType: item.sourceType ?? null,
     fileSize: item.fileSize ?? null,
     filePath: item.filePath ?? null,
+    sourceTimestamp: item.sourceTimestamp ?? null,
+    sourceTimestampSource: item.sourceTimestampSource ?? null,
+    sourceTimestampConfidence: item.sourceTimestampConfidence ?? null,
     createdPageIds: item.createdPageIds ?? [],
     updatedPageIds: item.updatedPageIds ?? [],
     appliedTypeNames: item.appliedTypeNames ?? [],
@@ -560,6 +563,10 @@ async function resolvePageVaultSource(
         file_path AS filePath,
         content_hash AS contentHash,
         file_mtime AS fileMtime,
+        source_timestamp AS sourceTimestamp,
+        source_timestamp_source AS sourceTimestampSource,
+        source_timestamp_confidence AS sourceTimestampConfidence,
+        source_timestamp_candidates AS sourceTimestampCandidates,
         indexed_at AS indexedAt
       FROM vault_files
       WHERE id = ?
@@ -584,6 +591,9 @@ async function resolvePageVaultSource(
     sourceType: row.sourceType,
     fileSize: row.fileSize,
     remotePath: row.filePath,
+    sourceTimestamp: row.sourceTimestamp ?? null,
+    sourceTimestampSource: row.sourceTimestampSource ?? null,
+    sourceTimestampConfidence: row.sourceTimestampConfidence ?? null,
     indexedAt: row.indexedAt,
     ...preview,
   };
@@ -1145,6 +1155,10 @@ export async function openDashboardPageSource(
           file_path AS filePath,
           content_hash AS contentHash,
           file_mtime AS fileMtime,
+          source_timestamp AS sourceTimestamp,
+          source_timestamp_source AS sourceTimestampSource,
+          source_timestamp_confidence AS sourceTimestampConfidence,
+          source_timestamp_candidates AS sourceTimestampCandidates,
           indexed_at AS indexedAt
         FROM vault_files
         WHERE id = ?
@@ -1183,6 +1197,10 @@ export function getDashboardVaultSummary(
           file_path AS filePath,
           content_hash AS contentHash,
           file_mtime AS fileMtime,
+          source_timestamp AS sourceTimestamp,
+          source_timestamp_source AS sourceTimestampSource,
+          source_timestamp_confidence AS sourceTimestampConfidence,
+          source_timestamp_candidates AS sourceTimestampCandidates,
           indexed_at AS indexedAt
         FROM vault_files
         ORDER BY id
@@ -1271,6 +1289,10 @@ export function listDashboardVaultFiles(
           file_path AS filePath,
           content_hash AS contentHash,
           file_mtime AS fileMtime,
+          source_timestamp AS sourceTimestamp,
+          source_timestamp_source AS sourceTimestampSource,
+          source_timestamp_confidence AS sourceTimestampConfidence,
+          source_timestamp_candidates AS sourceTimestampCandidates,
           indexed_at AS indexedAt
         FROM vault_files
         ORDER BY id
@@ -1299,6 +1321,9 @@ export function listDashboardVaultFiles(
           sourceType: file.sourceType,
           fileSize: file.fileSize,
           filePath: file.filePath,
+          sourceTimestamp: file.sourceTimestamp ?? null,
+          sourceTimestampSource: file.sourceTimestampSource ?? null,
+          sourceTimestampConfidence: file.sourceTimestampConfidence ?? null,
           indexedAt: file.indexedAt,
           queueStatus: queueItem?.status ?? "not-queued",
           queueItem: queueItem ? buildQueueListItem(queueItem) : null,
@@ -1348,6 +1373,10 @@ export async function getDashboardVaultFileDetail(
           file_path AS filePath,
           content_hash AS contentHash,
           file_mtime AS fileMtime,
+          source_timestamp AS sourceTimestamp,
+          source_timestamp_source AS sourceTimestampSource,
+          source_timestamp_confidence AS sourceTimestampConfidence,
+          source_timestamp_candidates AS sourceTimestampCandidates,
           indexed_at AS indexedAt
         FROM vault_files
         WHERE id = ?
@@ -1392,6 +1421,10 @@ export async function openDashboardVaultFile(
           file_path AS filePath,
           content_hash AS contentHash,
           file_mtime AS fileMtime,
+          source_timestamp AS sourceTimestamp,
+          source_timestamp_source AS sourceTimestampSource,
+          source_timestamp_confidence AS sourceTimestampConfidence,
+          source_timestamp_candidates AS sourceTimestampCandidates,
           indexed_at AS indexedAt
         FROM vault_files
         WHERE id = ?

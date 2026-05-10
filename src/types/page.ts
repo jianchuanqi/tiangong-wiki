@@ -46,7 +46,19 @@ export interface VaultFile {
   filePath: string;
   contentHash: string | null;
   fileMtime: number | null;
+  sourceTimestamp?: string | null;
+  sourceTimestampSource?: string | null;
+  sourceTimestampConfidence?: number | null;
+  sourceTimestampCandidates?: VaultSourceTimestampCandidate[];
   indexedAt: string;
+}
+
+export interface VaultSourceTimestampCandidate {
+  timestamp: string;
+  source: "file_name" | "path" | "file_mtime";
+  confidence: number;
+  precision: "date" | "datetime";
+  raw: string;
 }
 
 export interface VaultChange {
@@ -91,6 +103,9 @@ export interface VaultQueueItem {
   sourceType?: string | null;
   fileSize?: number;
   filePath?: string;
+  sourceTimestamp?: string | null;
+  sourceTimestampSource?: string | null;
+  sourceTimestampConfidence?: number | null;
 }
 
 export interface VaultQueueStats {

@@ -91,13 +91,13 @@ The agent uses [Codex SDK](https://www.npmjs.com/package/@openai/codex-sdk) to p
 | `WIKI_AGENT_MODEL` | No | Model name (default: `gpt-5.5`; e.g. `Qwen/Qwen3.5-397B-A17B-GPTQ-Int4`) |
 | `WIKI_AGENT_BATCH_SIZE` | No | Max concurrent vault queue workers per cycle (default: `5`) |
 | `WIKI_AGENT_SANDBOX_MODE` | No | Codex sandbox mode: `danger-full-access` (default) or `workspace-write` |
-| `WIKI_PARSER_SKILLS` | No | Comma-separated parser skill list (e.g. `pdf,docx,pptx,xlsx,document-granular-decompose`). `document-granular-decompose` covers PDF, Office, Markdown, and common image formats; use its own `SKILL.md` for the exact extension allowlist |
+| `WIKI_PARSER_SKILLS` | No | Comma-separated parser skill list (e.g. `pdf,docx,pptx,xlsx,document-granular-decompose`). `document-granular-decompose` covers PDF, Office, and common image formats; Markdown and other plain text-like files are read locally by the wiki workflow. Use the skill's own `SKILL.md` for the exact extension allowlist |
 | `UNSTRUCTURED_API_BASE_URL` | For `document-granular-decompose` | TianGong Unstructure API base URL |
 | `UNSTRUCTURED_AUTH_TOKEN` | For `document-granular-decompose` | Bearer token for TianGong Unstructure |
 | `UNSTRUCTURED_PROVIDER` | No | Optional provider override passed to TianGong Unstructure |
 | `UNSTRUCTURED_MODEL` | No | Optional model override passed to TianGong Unstructure |
 
-When `document-granular-decompose` is configured with `UNSTRUCTURED_API_BASE_URL` and `UNSTRUCTURED_AUTH_TOKEN`, the wiki agent prefers it before the type-specific `pdf`, `docx`, `pptx`, and `xlsx` skills for supported document/image files. Keep the type-specific skills configured only when you want them available as fallback tools.
+When `document-granular-decompose` is configured with `UNSTRUCTURED_API_BASE_URL` and `UNSTRUCTURED_AUTH_TOKEN`, the wiki agent prefers it before the type-specific `pdf`, `docx`, `pptx`, and `xlsx` skills for supported non-text document/image files. Keep the type-specific skills configured only when you want them available as fallback tools.
 
 For successful parser runs, the workflow keeps the exact plain-text extraction used by the agent at `.queue-artifacts/<file-artifact>/extracted-fulltext.txt`. `tiangong-wiki vault queue` exposes `extractedTextPath`, `extractedTextSha256`, `extractedTextParserSkill`, and `extractedTextCharCount` when a snapshot exists.
 

@@ -293,7 +293,7 @@ tiangong-wiki vault diff [--since <date>] [--path <prefix>]
 tiangong-wiki vault queue [--status pending|processing|done|skipped|error]
 ```
 
-- `list` — List indexed vault files; `--path` does prefix matching on relative paths
+- `list` — List indexed vault files; `--path` does prefix matching on relative paths. JSON output includes source timestamp inference fields when available (`sourceTimestamp`, `sourceTimestampSource`, `sourceTimestampConfidence`, `sourceTimestampCandidates`).
 - `diff` — Show changes since the last sync (or since a given date with `--since`)
 - `queue` — Show processing queue status and item details, including extracted plain-text artifact metadata when a parser snapshot exists
 

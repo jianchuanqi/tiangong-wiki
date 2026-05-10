@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
+import { utimesSync } from "node:fs";
 
 import {
   bootstrapRuntimeAssets,
@@ -72,5 +73,52 @@ describe("vault file type filtering", () => {
 
     expect(vaultFileIds).toEqual(["imports/notes.txt"]);
     expect(queueFileIds).toEqual(["imports/notes.txt"]);
+  });
+
+  it("infers and stores source timestamps from file names, paths, and mtime", () => {
+    const workspace = createWorkspace();
+    workspaces.push(workspace);
+
+    writeVaultFile(workspace, "imports/2024-03-05-retro.txt", "retro");
+    writeVaultFile(workspace, "reports/2025-04-08/summary.txt", "summary");
+    const plainPath = writeVaultFile(workspace, "imports/plain.txt", "plain");
+    const mtime = new Date(2023, 6, 9, 10, 11, 12);
+    utimesSync(plainPath, mtime, mtime);
+
+    runCliJson(["init"], workspace.env);
+
+    const rows = queryDb<{
+      id: string;
+      sourceTimestamp: string | null;
+      sourceTimestampSource: string | null;
+      sourceTimestampConfidence: number | null;
+      sourceTimestampCandidates: string | null;
+    }>(
+      workspace,
+      `
+        SELECT
+          id,
+          source_timestamp AS sourceTimestamp,
+          source_timestamp_source AS sourceTimestampSource,
+          source_timestamp_confidence AS sourceTimestampConfidence,
+          source_timestamp_candidates AS sourceTimestampCandidates
+        FROM vault_files
+        ORDER BY id
+      `,
+    );
+    const byId = new Map(rows.map((row) => [row.id, row]));
+
+    expect(byId.get("imports/2024-03-05-retro.txt")?.sourceTimestamp).toMatch(/^2024-03-05T00:00:00/);
+    expect(byId.get("imports/2024-03-05-retro.txt")?.sourceTimestampSource).toBe("file_name");
+    expect(byId.get("imports/2024-03-05-retro.txt")?.sourceTimestampConfidence).toBe(0.9);
+    expect(byId.get("imports/2024-03-05-retro.txt")?.sourceTimestampCandidates).toContain("2024-03-05");
+
+    expect(byId.get("reports/2025-04-08/summary.txt")?.sourceTimestamp).toMatch(/^2025-04-08T00:00:00/);
+    expect(byId.get("reports/2025-04-08/summary.txt")?.sourceTimestampSource).toBe("path");
+    expect(byId.get("reports/2025-04-08/summary.txt")?.sourceTimestampConfidence).toBe(0.8);
+
+    expect(byId.get("imports/plain.txt")?.sourceTimestamp).toMatch(/^2023-07-09T10:11:12/);
+    expect(byId.get("imports/plain.txt")?.sourceTimestampSource).toBe("file_mtime");
+    expect(byId.get("imports/plain.txt")?.sourceTimestampConfidence).toBe(0.5);
   });
 });

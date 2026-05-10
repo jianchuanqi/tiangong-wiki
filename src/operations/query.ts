@@ -138,6 +138,21 @@ function normalizeOptionalString(value: unknown): string | null {
   return normalized ? normalized : null;
 }
 
+function parseOptionalJsonArray(value: unknown): unknown[] {
+  if (Array.isArray(value)) {
+    return value;
+  }
+  if (typeof value !== "string" || !value.trim()) {
+    return [];
+  }
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
 function isAbsoluteLikePath(value: string): boolean {
   return path.isAbsolute(value) || /^[A-Za-z]:[\\/]/.test(value);
 }
@@ -623,7 +638,7 @@ export function listVaultFiles(
       params.push(String(options.ext).replace(/^\./, ""));
     }
 
-    return db
+    const rows = db
       .prepare(
         `
           SELECT
@@ -635,6 +650,10 @@ export function listVaultFiles(
             file_path AS filePath,
             content_hash AS contentHash,
             file_mtime AS fileMtime,
+            source_timestamp AS sourceTimestamp,
+            source_timestamp_source AS sourceTimestampSource,
+            source_timestamp_confidence AS sourceTimestampConfidence,
+            source_timestamp_candidates AS sourceTimestampCandidates,
             indexed_at AS indexedAt
           FROM vault_files
           ${clauses.length > 0 ? `WHERE ${clauses.join(" AND ")}` : ""}
@@ -642,6 +661,10 @@ export function listVaultFiles(
         `,
       )
       .all(...params) as Array<Record<string, unknown>>;
+    return rows.map((row) => ({
+      ...row,
+      sourceTimestampCandidates: parseOptionalJsonArray(row.sourceTimestampCandidates),
+    }));
   } finally {
     db.close();
   }

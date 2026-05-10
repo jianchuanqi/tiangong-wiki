@@ -5,7 +5,7 @@ import path from "node:path";
 import AdmZip from "adm-zip";
 
 import { type SynologyClient, type SynologyListItem, normalizeSynologyRemotePath, withSynologyClient } from "./synology.js";
-import type { VaultChange, VaultFile, VaultHashMode } from "../types/page.js";
+import type { VaultChange, VaultFile, VaultHashMode, VaultSourceTimestampCandidate } from "../types/page.js";
 import { AppError } from "../utils/errors.js";
 import {
   ensureDirSync,
@@ -53,6 +53,198 @@ function normalizeVaultFileExtension(filePath: string): string | null {
   return fileExt || null;
 }
 
+function normalizeFileMtimeMs(fileMtime: number | null | undefined): number | null {
+  if (typeof fileMtime !== "number" || !Number.isFinite(fileMtime) || fileMtime <= 0) {
+    return null;
+  }
+  return fileMtime < 1_000_000_000_000 ? fileMtime * 1000 : fileMtime;
+}
+
+function isValidDateParts(year: number, month: number, day: number, hour: number, minute: number, second: number): boolean {
+  if (year < 1900 || year > 2099 || month < 1 || month > 12 || day < 1 || day > 31) {
+    return false;
+  }
+  if (hour < 0 || hour > 23 || minute < 0 || minute > 59 || second < 0 || second > 59) {
+    return false;
+  }
+  const date = new Date(year, month - 1, day, hour, minute, second);
+  return (
+    date.getFullYear() === year &&
+    date.getMonth() === month - 1 &&
+    date.getDate() === day &&
+    date.getHours() === hour &&
+    date.getMinutes() === minute &&
+    date.getSeconds() === second
+  );
+}
+
+function buildTimestampCandidate(input: {
+  year: string;
+  month: string;
+  day: string;
+  hour?: string;
+  minute?: string;
+  second?: string;
+  raw: string;
+  source: VaultSourceTimestampCandidate["source"];
+}): VaultSourceTimestampCandidate | null {
+  const year = Number.parseInt(input.year, 10);
+  const month = Number.parseInt(input.month, 10);
+  const day = Number.parseInt(input.day, 10);
+  const hour = input.hour ? Number.parseInt(input.hour, 10) : 0;
+  const minute = input.minute ? Number.parseInt(input.minute, 10) : 0;
+  const second = input.second ? Number.parseInt(input.second, 10) : 0;
+  if (!isValidDateParts(year, month, day, hour, minute, second)) {
+    return null;
+  }
+
+  const precision = input.hour && input.minute ? "datetime" : "date";
+  const baseConfidence = input.source === "file_name" ? 0.9 : 0.8;
+  return {
+    timestamp: toOffsetIso(new Date(year, month - 1, day, hour, minute, second)),
+    source: input.source,
+    confidence: precision === "datetime" ? baseConfidence + 0.05 : baseConfidence,
+    precision,
+    raw: input.raw,
+  };
+}
+
+function collectDateCandidatesFromText(
+  text: string,
+  source: VaultSourceTimestampCandidate["source"],
+): VaultSourceTimestampCandidate[] {
+  const candidates: VaultSourceTimestampCandidate[] = [];
+  const separated =
+    /(^|[^0-9])((?:19|20)\d{2})[-_.年/]([01]?\d)[-_.月/]([0-3]?\d)(?:[日\sT_@-]+([0-2]?\d)[:：]?([0-5]\d)(?:[:：]?([0-5]\d))?)?(?=$|[^0-9])/g;
+  const compact =
+    /(^|[^0-9])((?:19|20)\d{2})([01]\d)([0-3]\d)(?:[T_\s@-]?([0-2]\d)([0-5]\d)([0-5]\d)?)?(?=$|[^0-9])/g;
+
+  for (const match of text.matchAll(separated)) {
+    const raw = match[0].slice(match[1].length);
+    const candidate = buildTimestampCandidate({
+      year: match[2],
+      month: match[3],
+      day: match[4],
+      hour: match[5],
+      minute: match[6],
+      second: match[7],
+      raw,
+      source,
+    });
+    if (candidate) {
+      candidates.push(candidate);
+    }
+  }
+
+  for (const match of text.matchAll(compact)) {
+    const raw = match[0].slice(match[1].length);
+    const candidate = buildTimestampCandidate({
+      year: match[2],
+      month: match[3],
+      day: match[4],
+      hour: match[5],
+      minute: match[6],
+      second: match[7],
+      raw,
+      source,
+    });
+    if (candidate) {
+      candidates.push(candidate);
+    }
+  }
+
+  return candidates;
+}
+
+function dedupeTimestampCandidates(candidates: VaultSourceTimestampCandidate[]): VaultSourceTimestampCandidate[] {
+  const seen = new Set<string>();
+  const result: VaultSourceTimestampCandidate[] = [];
+  for (const candidate of candidates) {
+    const key = `${candidate.timestamp}:${candidate.source}:${candidate.raw}`;
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    result.push(candidate);
+  }
+  return result;
+}
+
+function inferVaultSourceTimestamp(input: {
+  id: string;
+  fileName: string;
+  fileMtime: number | null;
+}): Pick<VaultFile, "sourceTimestamp" | "sourceTimestampSource" | "sourceTimestampConfidence" | "sourceTimestampCandidates"> {
+  const fileNameWithoutExt = input.fileName.replace(/\.[^.]+$/, "");
+  const directory = path.posix.dirname(input.id);
+  const pathText = directory === "." ? "" : directory;
+  const candidates = dedupeTimestampCandidates([
+    ...collectDateCandidatesFromText(fileNameWithoutExt, "file_name"),
+    ...collectDateCandidatesFromText(pathText, "path"),
+  ]);
+  const mtimeMs = normalizeFileMtimeMs(input.fileMtime);
+  if (mtimeMs !== null) {
+    candidates.push({
+      timestamp: toOffsetIso(new Date(mtimeMs)),
+      source: "file_mtime",
+      confidence: 0.5,
+      precision: "datetime",
+      raw: String(input.fileMtime),
+    });
+  }
+
+  const preferred = candidates
+    .slice()
+    .sort((left, right) => right.confidence - left.confidence || left.timestamp.localeCompare(right.timestamp))[0];
+
+  return {
+    sourceTimestamp: preferred?.timestamp ?? null,
+    sourceTimestampSource: preferred?.source ?? null,
+    sourceTimestampConfidence: preferred?.confidence ?? null,
+    sourceTimestampCandidates: candidates,
+  };
+}
+
+function serializeSourceTimestampCandidates(candidates: VaultSourceTimestampCandidate[] | undefined): string | null {
+  if (!candidates || candidates.length === 0) {
+    return null;
+  }
+  return JSON.stringify(candidates);
+}
+
+function parseSourceTimestampCandidates(value: unknown): VaultSourceTimestampCandidate[] {
+  if (Array.isArray(value)) {
+    return value as VaultSourceTimestampCandidate[];
+  }
+  if (typeof value !== "string" || value.trim().length === 0) {
+    return [];
+  }
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return Array.isArray(parsed) ? (parsed as VaultSourceTimestampCandidate[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+function mapVaultFileRow(row: Record<string, unknown>): VaultFile {
+  return {
+    id: String(row.id),
+    fileName: String(row.fileName),
+    fileExt: typeof row.fileExt === "string" ? row.fileExt : null,
+    sourceType: typeof row.sourceType === "string" ? row.sourceType : null,
+    fileSize: Number(row.fileSize ?? 0),
+    filePath: String(row.filePath),
+    contentHash: typeof row.contentHash === "string" ? row.contentHash : null,
+    fileMtime: typeof row.fileMtime === "number" ? row.fileMtime : null,
+    sourceTimestamp: typeof row.sourceTimestamp === "string" ? row.sourceTimestamp : null,
+    sourceTimestampSource: typeof row.sourceTimestampSource === "string" ? row.sourceTimestampSource : null,
+    sourceTimestampConfidence: typeof row.sourceTimestampConfidence === "number" ? row.sourceTimestampConfidence : null,
+    sourceTimestampCandidates: parseSourceTimestampCandidates(row.sourceTimestampCandidates),
+    indexedAt: String(row.indexedAt),
+  };
+}
+
 function createAllowedVaultFileTypeSet(vaultFileTypes: readonly string[]): Set<string> {
   return new Set(vaultFileTypes.map((item) => item.trim().replace(/^\./, "").toLowerCase()).filter(Boolean));
 }
@@ -79,6 +271,11 @@ function localVaultFiles(vaultPath: string, hashMode: VaultHashMode, vaultFileTy
       filePath,
       contentHash: computeVaultHash(hashMode, id, filePath, stats.size, stats.mtimeMs),
       fileMtime: stats.mtimeMs,
+      ...inferVaultSourceTimestamp({
+        id,
+        fileName: path.basename(filePath),
+        fileMtime: stats.mtimeMs,
+      }),
       indexedAt,
     };
   });
@@ -236,6 +433,11 @@ async function scanSynologyFolder(
       filePath,
       contentHash: sha256Text(`${relativeId}:${filePath}:${fileSize}:${fileMtime}`),
       fileMtime,
+      ...inferVaultSourceTimestamp({
+        id: relativeId,
+        fileName: item.name ?? path.basename(filePath),
+        fileMtime,
+      }),
       indexedAt,
     });
   }
@@ -283,12 +485,19 @@ function getExistingVaultFiles(db: Database.Database): Map<string, VaultFile> {
         file_path AS filePath,
         content_hash AS contentHash,
         file_mtime AS fileMtime,
+        source_timestamp AS sourceTimestamp,
+        source_timestamp_source AS sourceTimestampSource,
+        source_timestamp_confidence AS sourceTimestampConfidence,
+        source_timestamp_candidates AS sourceTimestampCandidates,
         indexed_at AS indexedAt
       FROM vault_files
     `,
-  ).all() as VaultFile[];
+  ).all() as Array<Record<string, unknown>>;
 
-  return new Map(rows.map((row) => [row.id, row]));
+  return new Map(rows.map((row) => {
+    const file = mapVaultFileRow(row);
+    return [file.id, file];
+  }));
 }
 
 export function getVaultQueuePriority(fileExt: string | null): number {
@@ -536,9 +745,13 @@ export function syncVaultIndex(
   const upsertStatement = db.prepare(
     `
       INSERT INTO vault_files(
-        id, file_name, file_ext, source_type, file_size, file_path, content_hash, file_mtime, indexed_at
+        id, file_name, file_ext, source_type, file_size, file_path, content_hash, file_mtime,
+        source_timestamp, source_timestamp_source, source_timestamp_confidence, source_timestamp_candidates,
+        indexed_at
       ) VALUES (
-        @id, @file_name, @file_ext, @source_type, @file_size, @file_path, @content_hash, @file_mtime, @indexed_at
+        @id, @file_name, @file_ext, @source_type, @file_size, @file_path, @content_hash, @file_mtime,
+        @source_timestamp, @source_timestamp_source, @source_timestamp_confidence, @source_timestamp_candidates,
+        @indexed_at
       )
       ON CONFLICT(id) DO UPDATE SET
         file_name = excluded.file_name,
@@ -548,6 +761,10 @@ export function syncVaultIndex(
         file_path = excluded.file_path,
         content_hash = excluded.content_hash,
         file_mtime = excluded.file_mtime,
+        source_timestamp = excluded.source_timestamp,
+        source_timestamp_source = excluded.source_timestamp_source,
+        source_timestamp_confidence = excluded.source_timestamp_confidence,
+        source_timestamp_candidates = excluded.source_timestamp_candidates,
         indexed_at = excluded.indexed_at
     `,
   );
@@ -709,6 +926,10 @@ export function syncVaultIndex(
         file_path: file.filePath,
         content_hash: file.contentHash,
         file_mtime: file.fileMtime,
+        source_timestamp: file.sourceTimestamp ?? null,
+        source_timestamp_source: file.sourceTimestampSource ?? null,
+        source_timestamp_confidence: file.sourceTimestampConfidence ?? null,
+        source_timestamp_candidates: serializeSourceTimestampCandidates(file.sourceTimestampCandidates),
         indexed_at: file.indexedAt,
       });
     }

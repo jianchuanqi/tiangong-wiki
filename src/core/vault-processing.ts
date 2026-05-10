@@ -105,6 +105,41 @@ function parseOptionalStringArray(value: unknown): string[] {
   }
 }
 
+function parseSourceTimestampCandidates(value: unknown): VaultFile["sourceTimestampCandidates"] {
+  if (Array.isArray(value)) {
+    return value as VaultFile["sourceTimestampCandidates"];
+  }
+  if (typeof value !== "string" || !value.trim()) {
+    return [];
+  }
+
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return Array.isArray(parsed) ? (parsed as VaultFile["sourceTimestampCandidates"]) : [];
+  } catch {
+    return [];
+  }
+}
+
+function mapVaultFileRow(row: Record<string, unknown>): VaultFile {
+  return {
+    id: String(row.id),
+    fileName: String(row.fileName),
+    fileExt: typeof row.fileExt === "string" ? row.fileExt : null,
+    sourceType: typeof row.sourceType === "string" ? row.sourceType : null,
+    fileSize: Number(row.fileSize ?? 0),
+    filePath: String(row.filePath),
+    contentHash: typeof row.contentHash === "string" ? row.contentHash : null,
+    fileMtime: typeof row.fileMtime === "number" ? row.fileMtime : null,
+    sourceTimestamp: typeof row.sourceTimestamp === "string" ? row.sourceTimestamp : null,
+    sourceTimestampSource: typeof row.sourceTimestampSource === "string" ? row.sourceTimestampSource : null,
+    sourceTimestampConfidence:
+      typeof row.sourceTimestampConfidence === "number" ? row.sourceTimestampConfidence : null,
+    sourceTimestampCandidates: parseSourceTimestampCandidates(row.sourceTimestampCandidates),
+    indexedAt: String(row.indexedAt),
+  };
+}
+
 function mapQueueRow(row: Record<string, unknown>): VaultQueueItem {
   const attempts = Number(row.attempts ?? 0);
   const status = row.status as VaultQueueStatus;
@@ -144,6 +179,10 @@ function mapQueueRow(row: Record<string, unknown>): VaultQueueItem {
     sourceType: typeof row.sourceType === "string" ? row.sourceType : null,
     fileSize: typeof row.fileSize === "number" ? row.fileSize : undefined,
     filePath: typeof row.filePath === "string" ? row.filePath : undefined,
+    sourceTimestamp: typeof row.sourceTimestamp === "string" ? row.sourceTimestamp : null,
+    sourceTimestampSource: typeof row.sourceTimestampSource === "string" ? row.sourceTimestampSource : null,
+    sourceTimestampConfidence:
+      typeof row.sourceTimestampConfidence === "number" ? row.sourceTimestampConfidence : null,
   };
 }
 
@@ -201,6 +240,9 @@ function claimQueueItems(
         vault_files.source_type AS sourceType,
         vault_files.file_size AS fileSize,
         vault_files.file_path AS filePath,
+        vault_files.source_timestamp AS sourceTimestamp,
+        vault_files.source_timestamp_source AS sourceTimestampSource,
+        vault_files.source_timestamp_confidence AS sourceTimestampConfidence,
         vault_extractions.artifact_path AS extractedTextPath,
         vault_extractions.artifact_sha256 AS extractedTextSha256,
         vault_extractions.parser_skill AS extractedTextParserSkill,
@@ -308,6 +350,9 @@ function fetchQueueItemsByStatus(
         vault_files.source_type AS sourceType,
         vault_files.file_size AS fileSize,
         vault_files.file_path AS filePath,
+        vault_files.source_timestamp AS sourceTimestamp,
+        vault_files.source_timestamp_source AS sourceTimestampSource,
+        vault_files.source_timestamp_confidence AS sourceTimestampConfidence,
         vault_extractions.artifact_path AS extractedTextPath,
         vault_extractions.artifact_sha256 AS extractedTextSha256,
         vault_extractions.parser_skill AS extractedTextParserSkill,
@@ -360,6 +405,9 @@ function fetchQueueItemByFileId(
         vault_files.source_type AS sourceType,
         vault_files.file_size AS fileSize,
         vault_files.file_path AS filePath,
+        vault_files.source_timestamp AS sourceTimestamp,
+        vault_files.source_timestamp_source AS sourceTimestampSource,
+        vault_files.source_timestamp_confidence AS sourceTimestampConfidence,
         vault_extractions.artifact_path AS extractedTextPath,
         vault_extractions.artifact_sha256 AS extractedTextSha256,
         vault_extractions.parser_skill AS extractedTextParserSkill,
@@ -388,12 +436,16 @@ function fetchVaultFile(db: Database.Database, fileId: string): VaultFile | null
         file_path AS filePath,
         content_hash AS contentHash,
         file_mtime AS fileMtime,
+        source_timestamp AS sourceTimestamp,
+        source_timestamp_source AS sourceTimestampSource,
+        source_timestamp_confidence AS sourceTimestampConfidence,
+        source_timestamp_candidates AS sourceTimestampCandidates,
         indexed_at AS indexedAt
       FROM vault_files
       WHERE id = ?
     `,
-  ).get(fileId) as VaultFile | undefined;
-  return row ?? null;
+  ).get(fileId) as Record<string, unknown> | undefined;
+  return row ? mapVaultFileRow(row) : null;
 }
 
 function buildProcessingOwnerId(): string {
@@ -484,6 +536,9 @@ function fetchStaleProcessingQueueItems(
         vault_files.source_type AS sourceType,
         vault_files.file_size AS fileSize,
         vault_files.file_path AS filePath,
+        vault_files.source_timestamp AS sourceTimestamp,
+        vault_files.source_timestamp_source AS sourceTimestampSource,
+        vault_files.source_timestamp_confidence AS sourceTimestampConfidence,
         vault_extractions.artifact_path AS extractedTextPath,
         vault_extractions.artifact_sha256 AS extractedTextSha256,
         vault_extractions.parser_skill AS extractedTextParserSkill,

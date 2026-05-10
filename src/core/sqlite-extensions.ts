@@ -17,6 +17,7 @@ const SIMPLE_ASSET_MAP: Record<string, Record<string, string>> = {
     x64: "assets/sqlite-extensions/darwin-x64/libsimple.dylib",
   },
   linux: {
+    arm64: "assets/sqlite-extensions/linux-arm64/libsimple.so",
     x64: "assets/sqlite-extensions/linux-x64/libsimple.so",
   },
   win32: {

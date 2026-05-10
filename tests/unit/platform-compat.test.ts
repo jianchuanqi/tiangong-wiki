@@ -13,13 +13,16 @@ describe("platform compatibility", () => {
     expect(resolveBundledSimpleExtensionRelativePath("linux", "x64")).toBe(
       "assets/sqlite-extensions/linux-x64/libsimple.so",
     );
+    expect(resolveBundledSimpleExtensionRelativePath("linux", "arm64")).toBe(
+      "assets/sqlite-extensions/linux-arm64/libsimple.so",
+    );
     expect(resolveBundledSimpleExtensionRelativePath("win32", "x64")).toBe(
       "assets/sqlite-extensions/win32-x64/simple.dll",
     );
   });
 
   it("fails loudly for unsupported simple tokenizer platform/architecture pairs", () => {
-    expect(() => resolveBundledSimpleExtensionRelativePath("linux", "arm64")).toThrow(
+    expect(() => resolveBundledSimpleExtensionRelativePath("win32", "arm64")).toThrow(
       "Bundled simple extension is not available",
     );
   });

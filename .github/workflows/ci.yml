@@ -23,11 +23,9 @@ jobs:
           - os: windows-latest
             node: 22
             validation_command: npm test
-          # The bundled simple FTS extension does not ship a linux-arm64 asset yet,
-          # so Ubuntu ARM validates build, unit tests, package creation, and CLI startup.
           - os: ubuntu-24.04-arm
             node: 22
-            validation_command: npm run build && npx vitest run tests/unit
+            validation_command: npm test
 
     steps:
       - name: Checkout

@@ -8,7 +8,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/Biaoo/tiangong-wiki.git"
+    "url": "git+https://github.com/Biaoo/tiangong-wiki.git"
   },
   "homepage": "https://github.com/Biaoo/tiangong-wiki#readme",
   "bugs": {
@@ -16,8 +16,8 @@
   },
   "license": "MIT",
   "bin": {
-    "tiangong-wiki": "./dist/index.js",
-    "tiangong-wiki-mcp-server": "./mcp-server/dist/index.js"
+    "tiangong-wiki": "dist/index.js",
+    "tiangong-wiki-mcp-server": "mcp-server/dist/index.js"
   },
   "main": "./dist/index.js",
   "files": [
